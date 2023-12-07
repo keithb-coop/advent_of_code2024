@@ -3,6 +3,7 @@ import {promises as filesystem} from "fs";
 import {trimLeft} from "fp-ts/string";
 
 import {Monoid} from "fp-ts/Monoid";
+import {pipe} from "fp-ts/function";
 
 const forAll: Monoid<boolean> = {
     concat: (l: boolean, r:boolean) => l && r,
@@ -43,10 +44,10 @@ class GameSet {
 
 
 class Game {
-    get gameNumber(): string {
-        return this._gameNumber;
+    get gameNumber(): number {
+        return parseInt(this._gameNumber)
     }
-    private _gameNumber: string = "";
+    private _gameNumber: string = ""
 
     get numberOfSets() {
         return this._sets.length
@@ -98,7 +99,7 @@ describe("Advent of Code",()=> {
         it("parses input lines", () => {
             const input = "Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red"
             const aGame = new Game(input)
-            expect(aGame.gameNumber).toEqual("3")
+            expect(aGame.gameNumber).toEqual(3)
             expect(aGame.numberOfSets).toEqual(3)
             
             const gameSet = aGame.set(1)
@@ -131,11 +132,10 @@ describe("Advent of Code",()=> {
             const rawData = await filesystem.readFile('problem_sets/Day2.txt', 'utf-8')
             const data = rawData.split(/\r?\n/)
             const games = map((aString: string) => new Game(aString))(data)
-
-
             const ballSupply = new GameSet("12 red, 13 green, 14 blue")
-            const possibleGames = filter((aGame: Game)=>aGame.couldBePlayedWity(ballSupply))(games)
-            const result = reduce(0, (accumulator: number, aGame: Game) => accumulator + parseInt(aGame.gameNumber))(possibleGames)
+            const result = pipe(games,
+                filter((aGame: Game)=>aGame.couldBePlayedWity(ballSupply)),
+                reduce(0, (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber))
             expect(result).toEqual(2447)
         })
     })
