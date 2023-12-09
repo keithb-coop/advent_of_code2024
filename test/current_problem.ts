@@ -91,49 +91,37 @@ function createParser() {
             }
         `)
 
-    const gamesActions = {
+    const gameSemantics = grammar.createSemantics()
+    gameSemantics.addOperation('parseGamesData', {
         Games(list: IterationNode) { // note: Games is a repetition, so the node _is_ an IterationNode
             return list.children.map(child => child.parseGameData())
         }
-    }
-
-    const gameActions = {
+    })
+    gameSemantics.addOperation('parseGameData', {
         Game(tag: Node, id: Node, separator: Node, rounds: Node) {
             return new Game(id.parseNumberData(), rounds.parseRoundsData())
         }
-    }
-
-    const roundsActions = {
+    })
+    gameSemantics.addOperation('parseRoundsData', {
         Rounds(list: Node) { //note: Rounds is a list, so the node _is not_ an IterationNode
             return list.asIteration().children.map((child: Node) => child.parseRoundData())
         }
-    }
-
-    const roundActions = {
+    })
+    gameSemantics.addOperation('parseRoundData', {
         Round(list: Node) {
             return new Round(list.asIteration().children.map((child: Node) => child.parseCubesData()))
         }
-    }
-
-    const cubesActions = {
+    })
+    gameSemantics.addOperation('parseCubesData', {
         Cubes(count: Node, colour: Node) {
             return [count.parseNumberData(), colour.sourceString]
         }
-    }
-
-    const numberActions = {
+    })
+    gameSemantics.addOperation('parseNumberData', {
         number(digits: IterationNode): string {
             return digits.sourceString
         }
-    }
-
-    const gameSemantics = grammar.createSemantics()
-    gameSemantics.addOperation('parseGamesData', gamesActions)
-    gameSemantics.addOperation('parseGameData', gameActions)
-    gameSemantics.addOperation('parseRoundsData', roundsActions)
-    gameSemantics.addOperation('parseRoundData', roundActions)
-    gameSemantics.addOperation('parseCubesData', cubesActions)
-    gameSemantics.addOperation('parseNumberData', numberActions)
+    })
     return {grammar, gameSemantics};
 }
 
