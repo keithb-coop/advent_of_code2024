@@ -85,28 +85,23 @@ function createParser() {
         Games(list) { // note: Games is a repetition, so the node _is_ an IterationNode
             return list.children.map(child => child.parseGameData())
         }
-    })
-    gameSemantics.addOperation('parseGameData', {
+    }).addOperation('parseGameData', {
         Game(_tag, id, _colon, rounds) {
             return new Game(id.parseNumberData(), rounds.parseRoundsData())
         }
-    })
-    gameSemantics.addOperation('parseRoundsData', {
+    }).addOperation('parseRoundsData', {
         Rounds(list) { //note: Rounds is a list, so the node _is not_ an IterationNode
             return list.asIteration().children.map((child) => child.parseRoundData())
         }
-    })
-    gameSemantics.addOperation('parseRoundData', {
+    }).addOperation('parseRoundData', {
         Round(list) {
             return new Round(list.asIteration().children.map((child) => child.parseCubesData()))
         }
-    })
-    gameSemantics.addOperation('parseCubesData', {
+    }).addOperation('parseCubesData', {
         Cubes(count, colour) {
             return [count.parseNumberData(), colour.sourceString]
         }
-    })
-    gameSemantics.addOperation('parseNumberData', {
+    }).addOperation('parseNumberData', {
         number(digits): string {
             return digits.sourceString
         }
