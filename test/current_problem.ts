@@ -67,21 +67,16 @@ const Colours:["red", "green", "blue"] = [Red, Green, Blue] // enums are not wor
 function createParser() {
     const grammar = ohm.grammar(String.raw`
             BallGames {
-                Games = Game+
-                
+                Games = Game+               
                 Game = "Game" number ":" Rounds
                                    
-                Rounds = ListOf<Round, ";"> 
-                        
+                Rounds = ListOf<Round, ";">                        
                 Round = ListOf<Cubes, ",">
                 
                 Cubes  = number colour
      
-                colour = red | blue | green
-                red   = "red"
-                green = "green"
-                blue  = "blue"
-                
+                colour = "red" | "blue" | "green"
+             
                 number = digit+
             }
         `)
