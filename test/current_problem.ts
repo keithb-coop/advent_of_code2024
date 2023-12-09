@@ -5,7 +5,6 @@ import {Monoid} from "fp-ts/Monoid";
 import {pipe} from "fp-ts/function";
 
 import * as ohm from 'ohm-js'
-import {IterationNode, Node} from 'ohm-js'
 
 const forAll: Monoid<boolean> = {
     concat: (l: boolean, r:boolean) => l && r,
@@ -83,32 +82,32 @@ function createParser() {
 
     const gameSemantics = grammar.createSemantics()
     gameSemantics.addOperation('parseGamesData', {
-        Games(list: IterationNode) { // note: Games is a repetition, so the node _is_ an IterationNode
+        Games(list) { // note: Games is a repetition, so the node _is_ an IterationNode
             return list.children.map(child => child.parseGameData())
         }
     })
     gameSemantics.addOperation('parseGameData', {
-        Game(_tag, id: Node, _colon, rounds: Node) {
+        Game(_tag, id, _colon, rounds) {
             return new Game(id.parseNumberData(), rounds.parseRoundsData())
         }
     })
     gameSemantics.addOperation('parseRoundsData', {
-        Rounds(list: Node) { //note: Rounds is a list, so the node _is not_ an IterationNode
-            return list.asIteration().children.map((child: Node) => child.parseRoundData())
+        Rounds(list) { //note: Rounds is a list, so the node _is not_ an IterationNode
+            return list.asIteration().children.map((child) => child.parseRoundData())
         }
     })
     gameSemantics.addOperation('parseRoundData', {
-        Round(list: Node) {
-            return new Round(list.asIteration().children.map((child: Node) => child.parseCubesData()))
+        Round(list) {
+            return new Round(list.asIteration().children.map((child) => child.parseCubesData()))
         }
     })
     gameSemantics.addOperation('parseCubesData', {
-        Cubes(count: Node, colour: Node) {
+        Cubes(count, colour) {
             return [count.parseNumberData(), colour.sourceString]
         }
     })
     gameSemantics.addOperation('parseNumberData', {
-        number(digits: IterationNode): string {
+        number(digits): string {
             return digits.sourceString
         }
     })
