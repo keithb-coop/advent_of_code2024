@@ -88,7 +88,7 @@ function createParser() {
         }
     })
     gameSemantics.addOperation('parseGameData', {
-        Game(tag: Node, id: Node, _, rounds: Node) {
+        Game(_tag, id: Node, _colon, rounds: Node) {
             return new Game(id.parseNumberData(), rounds.parseRoundsData())
         }
     })
