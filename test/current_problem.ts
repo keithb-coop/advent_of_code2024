@@ -1,88 +1,64 @@
-import {filter, foldMap, map, reduce} from "fp-ts/Array";
+import {filter, foldMap, reduce} from "fp-ts/Array";
 import {promises as filesystem} from "fs";
-import {trimLeft} from "fp-ts/string";
 
 import {Monoid} from "fp-ts/Monoid";
 import {pipe} from "fp-ts/function";
+
+import * as ohm from 'ohm-js'
+import {IterationNode, Node} from 'ohm-js'
 
 const forAll: Monoid<boolean> = {
     concat: (l: boolean, r:boolean) => l && r,
     empty: true
 }
 
-class GameSet {
+class Round {
     numberOf(colour: Colour){
         return this._counts.get(colour)
     }
 
     readonly _counts: Map<Colour, number>
 
-    constructor(aString: string) {
+    constructor(counts:Array<[string, Colour]>) {
         this._counts = new Map()
-        for (const entry of map(trimLeft)(aString.split(","))) {
-            const [theCount, theColour] = entry.split(" ")
-            for(const colour of Colours){
-                if(colour === theColour){
-                    this._counts.set(colour, parseInt(theCount))
-                    break
-                }
-            }
+        for (const count of counts) {
+            this._counts.set(count[1] as Colour, parseInt(count[0]))
         }
     }
 
-    enoughOfFor(aSet: GameSet) {
+    enoughOfFor(aSet: Round) {
         return (colour: Colour) => {
             return (aSet?.numberOf(colour) ?? 0) <= (this?.numberOf(colour) ?? 0)
         }
     }
 
-    couldProvide(possibleSet: GameSet) {
+    couldProvide(possibleSet: Round) {
         return foldMap(forAll)(this.enoughOfFor(possibleSet))(Colours)
     }
 }
-
 
 
 class Game {
     get gameNumber(): number {
         return parseInt(this._gameNumber)
     }
-    private _gameNumber: string = ""
+    private readonly _gameNumber: string
 
-    get numberOfSets() {
-        return this._sets.length
+    private readonly _rounds: Round[]
+
+    constructor(id: string, sets: Round[]) {
+        this._gameNumber = id
+        this._rounds = sets
     }
 
-    private _sets: any[]
-
-    constructor(input: string) {
-        const fields = input.split(':')
-        this.populateNumber(fields[0]);
-        this._sets = []
-        this.populateSets(fields[1])
-    }
-
-    private populateNumber(field: string) {
-        this._gameNumber = field.split(" ")[1]
-    }
-
-    populateSets(input: string) {
-        const fields = input.split(';')
-        this._sets = map((aString: string) => new GameSet(aString))(fields)
-    }
-
-    set(number: number) {
-        return this._sets[number]
-    }
-
-    gameSetEnoughFor(ballSupply: GameSet){
-        return (myGame: GameSet)=>{
-            return ballSupply.couldProvide(myGame)
+    gameSetEnoughFor(cubeSupply: Round){
+        return (myGame: Round)=>{
+            return cubeSupply.couldProvide(myGame)
         }
     }
 
-    couldBePlayedWity(ballSupply: GameSet) {
-        return foldMap(forAll)(this.gameSetEnoughFor(ballSupply))(this._sets)
+    couldBePlayedWity(ballSupply: Round) {
+        return foldMap(forAll)(this.gameSetEnoughFor(ballSupply))(this._rounds)
     }
 }
 
@@ -93,48 +69,111 @@ const Blue : "blue" = "blue"
 type Colour = "red" | "green" | "blue"
 const Colours:["red", "green", "blue"] = [Red, Green, Blue] // enums are not worth having, they're too non-orthogonal
 
+function createParser() {
+    const grammar = ohm.grammar(String.raw`
+            BallGames {
+                Games = Game+
+                
+                Game = "Game" number ":" Rounds
+                                   
+                Rounds = ListOf<Round, ";"> 
+                        
+                Round = ListOf<Cubes, ",">
+                
+                Cubes  = number colour
+     
+                colour = red | blue | green
+                red   = "red"
+                green = "green"
+                blue  = "blue"
+                
+                number = digit+
+            }
+        `)
+
+    const gamesActions = {
+        Games(list: IterationNode) { // note: Games is a repetition, so the node _is_ an IterationNode
+            return list.children.map(child => child.parseGameData())
+        }
+    }
+
+    const gameActions = {
+        Game(tag: Node, id: Node, separator: Node, rounds: Node) {
+            return new Game(id.parseNumberData(), rounds.parseRoundsData())
+        }
+    }
+
+    const roundsActions = {
+        Rounds(list: Node) { //note: Rounds is a list, so the node _is not_ an IterationNode
+            return list.asIteration().children.map((child: Node) => child.parseRoundData())
+        }
+    }
+
+    const roundActions = {
+        Round(list: Node) {
+            return new Round(list.asIteration().children.map((child: Node) => child.parseCubesData()))
+        }
+    }
+
+    const cubesActions = {
+        Cubes(count: Node, colour: Node) {
+            return [count.parseNumberData(), colour.sourceString]
+        }
+    }
+
+    const numberActions = {
+        number(digits: IterationNode): string {
+            return digits.sourceString
+        }
+    }
+
+    const gameSemantics = grammar.createSemantics()
+    gameSemantics.addOperation('parseGamesData', gamesActions)
+    gameSemantics.addOperation('parseGameData', gameActions)
+    gameSemantics.addOperation('parseRoundsData', roundsActions)
+    gameSemantics.addOperation('parseRoundData', roundActions)
+    gameSemantics.addOperation('parseCubesData', cubesActions)
+    gameSemantics.addOperation('parseNumberData', numberActions)
+    return {grammar, gameSemantics};
+}
 
 describe("Advent of Code",()=> {
-    describe("2", () => {
-        it("parses input lines", () => {
-            const input = "Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red"
-            const aGame = new Game(input)
-            expect(aGame.gameNumber).toEqual(3)
-            expect(aGame.numberOfSets).toEqual(3)
-            
-            const gameSet = aGame.set(1)
-            expect(gameSet.numberOf(Red)).toEqual(4)
-            expect(gameSet.numberOf(Green)).toEqual(13)
-            expect(gameSet.numberOf(Blue)).toEqual(5)
+    describe("using ohm", () => {
+        it("builds games",()=> {
+            const {grammar, gameSemantics} = createParser();
+
+            const exmapleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
+            const matchResult = grammar.match(exmapleGames)
+            expect(matchResult.succeeded()).toBeTruthy()
+
+            const games: Game[] = gameSemantics(matchResult).parseGamesData()
+            expect(games.length).toEqual(2)
+            expect(games[0].gameNumber).toEqual(17)
         })
 
-        it("recognises GameSet validity",()=>{
-            const ballSupply = new GameSet("12 red, 13 green, 14 blue")
 
-            const possibleSet = new GameSet("7 red, 12 green, 2 blue")
-            expect(ballSupply.couldProvide(possibleSet)).toBeTruthy()
+        it("recognises validity",()=> {
+            const {grammar, gameSemantics} = createParser();
 
-            const impossibleSet = new GameSet("6 red, 14 green, 1 blue")
-            expect(ballSupply.couldProvide(impossibleSet)).toBeFalsy()
-        })
-
-        it("recognises Game validity",()=> {
-            const ballSupply = new GameSet("12 red, 13 green, 14 blue")
-
-            const possibleGame = new Game("Game 1: 10 red, 6 green, 2 blue; 12 red, 13 green, 14 blue")
-            expect(possibleGame.couldBePlayedWity(ballSupply)).toBeTruthy()
-
-            const imPossibleGame = new Game("Game 1: 10 red, 16 green, 2 blue; 12 red, 13 green, 14 blue")
-            expect(imPossibleGame.couldBePlayedWity(ballSupply)).toBeFalsy()
+            const exmapleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
+            const games: Game[] = gameSemantics(grammar.match(exmapleGames)).parseGamesData()
+            const cubeSupply = new Round([["12", Red], ["13", Green], ["14", Blue]])
+            expect(games[0].couldBePlayedWity(cubeSupply)).toBeFalsy()
+            expect(games[1].couldBePlayedWity(cubeSupply)).toBeTruthy()
         })
 
         it("finds the answer", async () => {
+            const {grammar, gameSemantics} = createParser();
             const rawData = await filesystem.readFile('problem_sets/Day2.txt', 'utf-8')
-            const data = rawData.split(/\r?\n/)
-            const games = map((aString: string) => new Game(aString))(data)
-            const ballSupply = new GameSet("12 red, 13 green, 14 blue")
+            //console.log(grammar.trace(rawData))
+            const matchResult = grammar.match(rawData)
+            expect(matchResult.succeeded()).toBeTruthy()
+            const games = gameSemantics(matchResult).parseGamesData()
+
+            const cubeSupply = new Round([["12", Red], ["13", Green], ["14", Blue]])
+
             const result = pipe(games,
-                filter((aGame: Game)=>aGame.couldBePlayedWity(ballSupply)),
+                filter((aGame: Game)=>aGame.couldBePlayedWity(cubeSupply)),
                 reduce(0, (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber))
             expect(result).toEqual(2447)
         })
