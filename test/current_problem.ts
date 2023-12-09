@@ -13,9 +13,6 @@ const forAll: Monoid<boolean> = {
 }
 
 class Round {
-    numberOf(colour: Colour){
-        return this._counts.get(colour)
-    }
 
     readonly _counts: Map<Colour, number>
 
@@ -26,14 +23,18 @@ class Round {
         }
     }
 
+    numberOf(colour: Colour){
+        return this._counts.get(colour)
+    }
+
     enoughOfFor(aSet: Round) {
         return (colour: Colour) => {
             return (aSet?.numberOf(colour) ?? 0) <= (this?.numberOf(colour) ?? 0)
         }
     }
 
-    couldProvide(possibleSet: Round) {
-        return foldMap(forAll)(this.enoughOfFor(possibleSet))(Colours)
+    couldProvide(candidateSet: Round) {
+        return foldMap(forAll)(this.enoughOfFor(candidateSet))(Colours)
     }
 }
 
@@ -51,14 +52,8 @@ class Game {
         this._rounds = sets
     }
 
-    gameSetEnoughFor(cubeSupply: Round){
-        return (myGame: Round)=>{
-            return cubeSupply.couldProvide(myGame)
-        }
-    }
-
     couldBePlayedWity(ballSupply: Round) {
-        return foldMap(forAll)(this.gameSetEnoughFor(ballSupply))(this._rounds)
+        return foldMap(forAll)((myGame: Round) => ballSupply.couldProvide(myGame))(this._rounds)
     }
 }
 
