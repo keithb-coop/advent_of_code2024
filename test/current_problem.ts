@@ -75,7 +75,7 @@ function createParser() {
                 
                 Cubes  = number colour
      
-                colour = "red" | "blue" | "green"
+                colour = "${Red}" | "${Blue}" | "${Green}"
              
                 number = digit+
             }
