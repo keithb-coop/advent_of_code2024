@@ -43,7 +43,7 @@ class Round {
     }
 
     get power() {
-        //it would be nice to use reduce() here but it's hard to get at the underlying array, it's always hidden behind an Iterable
+        //it would be nice to use reduce() here, but it's hard to get at the underlying array, it's always hidden behind an Iterable
         let result = 1
         this._counts.forEach((value, _key) => result = result * value) // yuk
         return result
@@ -73,7 +73,7 @@ class Game {
         this._rounds = sets
     }
 
-    couldBePlayedWity(ballSupply: Round) {
+    couldBePlayedWith(ballSupply: Round) {
         return foldMap(forAll)((myGame: Round) => ballSupply.couldProvide(myGame))(this._rounds)
     }
 
@@ -139,7 +139,7 @@ function createParser() {
 
 function sumIdsOfPossibleGames(games: Game[], cubeSupply: Round) {
     return pipe(games,
-        filter((aGame: Game) => aGame.couldBePlayedWity(cubeSupply)),
+        filter((aGame: Game) => aGame.couldBePlayedWith(cubeSupply)),
         reduce(0,
             (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber));
 }
@@ -160,10 +160,10 @@ describe("Advent of Code",()=> {
                 it("builds games", () => {
 
                     const {grammar, gameSemantics} = createParser();
-                    const exmapleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
-                    expect(grammar.match(exmapleGames).succeeded()).toBeTruthy()
+                    const exampleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
+                    expect(grammar.match(exampleGames).succeeded()).toBeTruthy()
 
-                    const games: Game[] = gameSemantics(grammar.match(exmapleGames)).parseGamesData()
+                    const games: Game[] = gameSemantics(grammar.match(exampleGames)).parseGamesData()
                     expect(games.length).toEqual(2)
                     expect(games[0].gameNumber).toEqual(17)
                 })
@@ -171,11 +171,11 @@ describe("Advent of Code",()=> {
                 it("recognises validity", () => {
                     const {grammar, gameSemantics} = createParser();
 
-                    const exmapleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
-                    const games: Game[] = gameSemantics(grammar.match(exmapleGames)).parseGamesData()
+                    const exampleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
+                    const games: Game[] = gameSemantics(grammar.match(exampleGames)).parseGamesData()
                     const cubeSupply = new Round([[12, Red], [13, Green], [14, Blue]])
-                    expect(games[0].couldBePlayedWity(cubeSupply)).toBeFalsy()
-                    expect(games[1].couldBePlayedWity(cubeSupply)).toBeTruthy()
+                    expect(games[0].couldBePlayedWith(cubeSupply)).toBeFalsy()
+                    expect(games[1].couldBePlayedWith(cubeSupply)).toBeTruthy()
                 })
 
                 it("finds the answer", async () => {
