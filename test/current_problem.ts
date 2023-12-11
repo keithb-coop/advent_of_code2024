@@ -6,13 +6,14 @@ import {pipe} from "fp-ts/function";
 
 import * as ohm from 'ohm-js'
 
+// These handy monoids will be used in applications of foldMap
 const forAll: Monoid<boolean> = {
-    concat: (l: boolean, r:boolean) => l && r,
+    concat: (l, r) => l && r,
     empty: true
 }
 
 const sumAll: Monoid<number> = {
-    concat: (l: number, r:number) => l + r,
+    concat: (l, r) => l + r,
     empty: 0
 }
 
@@ -33,26 +34,24 @@ class Round {
 
     enoughOfFor(aSet: Round) {
         return (colour: Colour) => {
-            return (aSet?.numberOf(colour) ?? 0) <= (this?.numberOf(colour) ?? 0)
+            return (aSet?.numberOf(colour) ?? 0) <= (this?.numberOf(colour) ?? 0) //null handling to keep TS happy
         }
     }
 
     couldProvide(candidateSet: Round) {
-        return foldMap(forAll)(this.enoughOfFor(candidateSet))(Colours)
+        return foldMap(forAll)(this.enoughOfFor(candidateSet))(Colours) //don't much like this curried syntax
     }
 
     get power() {
+        //it would be nice to use reduce() here but it's hard to get at the underlying array, it's always hidden behind an Iterable
         let result = 1
-        for (const v of this._counts.values()) { //it would be nice to use map(), but values() is a Iterator not an array
-            result = result * v
-        }
+        this._counts.forEach((value, _key) => result = result * value) // yuk
         return result
     }
 
     minimumRequiredWith(anotherRound: Round): Round {
-        const stuff: Array<[number, Colour]> = pipe(Colours, map((colour:Colour) => [this.biggerCount(colour, anotherRound), colour as Colour]))
-        return new Round(stuff)
-
+        return new Round(pipe(Colours,
+            map((colour: Colour) => [this.biggerCount(colour, anotherRound), colour as Colour])))
     }
 
     private biggerCount(colour: Colour, anotherRound: Round):number {
@@ -81,7 +80,7 @@ class Game {
     get minimumCubeSupply(): Round{
         return pipe(this._rounds,
             reduce(new Round([[0, Red], [0, Green], [0, Blue]]),
-                (accumulator: Round, next: Round) => accumulator.minimumRequiredWith(next)))
+                (accumulator, next: Round) => accumulator.minimumRequiredWith(next)))
     }
 }
 
@@ -103,7 +102,7 @@ function createParser() {
                 
                 Cubes  = number colour
      
-                colour = "${Red}" | "${Blue}" | "${Green}"
+                colour = "${Red}" | "${Blue}" | "${Green}" //nice!
              
                 number = digit+
             }
@@ -141,7 +140,8 @@ function createParser() {
 function sumIdsOfPossibleGames(games: Game[], cubeSupply: Round) {
     return pipe(games,
         filter((aGame: Game) => aGame.couldBePlayedWity(cubeSupply)),
-        reduce(0, (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber));
+        reduce(0,
+            (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber));
 }
 
 function makeGames(rawData: string) {
@@ -150,7 +150,7 @@ function makeGames(rawData: string) {
 }
 
 function findPowerSumMinimumSets(games: Game[]) {
-    return foldMap(sumAll)((g: Game) => g.minimumCubeSupply.power)(games);
+    return foldMap(sumAll)((g: Game) => g.minimumCubeSupply.power)(games) //could have been a pipe with map() and reduce()
 }
 
 describe("Advent of Code",()=> {
