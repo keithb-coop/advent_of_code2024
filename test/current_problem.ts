@@ -1,235 +1,224 @@
-import {filter, foldMap, map, reduce} from "fp-ts/Array";
 import {promises as filesystem} from "fs";
-
-import {Monoid} from "fp-ts/Monoid";
-import {pipe} from "fp-ts/function";
 
 import * as ohm from 'ohm-js'
 
-// These handy monoids will be used in applications of foldMap
-const forAll: Monoid<boolean> = {
-    concat: (l, r) => l && r,
-    empty: true
-}
+class Diagram {
+    private _lines: Map<number, Line>
 
-const sumAll: Monoid<number> = {
-    concat: (l, r) => l + r,
-    empty: 0
-}
-
-class Round {
-
-    readonly _counts: Map<Colour, number>
-
-    constructor(counts:Array<[number, Colour]>) {
-        this._counts = new Map()
-        for (const count of counts) {
-            this._counts.set(count[1] as Colour, count[0])
-        }
+    constructor(lines: Line[]) {
+        this._lines = new Map()
+        lines.forEach(line => this._lines.set(line.index, line))
     }
 
-    numberOf(colour: Colour){
-        return this._counts.get(colour)
-    }
-
-    enoughOfFor(aSet: Round) {
-        return (colour: Colour) => {
-            return (aSet?.numberOf(colour) ?? 0) <= (this?.numberOf(colour) ?? 0) //null handling to keep TS happy
-        }
-    }
-
-    couldProvide(candidateSet: Round) {
-        return foldMap(forAll)(this.enoughOfFor(candidateSet))(Colours) //don't much like this curried syntax
-    }
-
-    get power() {
-        //it would be nice to use reduce() here, but it's hard to get at the underlying array, it's always hidden behind an Iterable
-        let result = 1
-        this._counts.forEach((value, _key) => result = result * value) // yuk
-        return result
-    }
-
-    minimumRequiredWith(anotherRound: Round): Round {
-        return new Round(pipe(Colours,
-            map((colour: Colour) => [this.biggerCount(colour, anotherRound), colour as Colour])))
-    }
-
-    private biggerCount(colour: Colour, anotherRound: Round):number {
-        return Math.max(this.numberOf(colour) ?? 0, anotherRound?.numberOf(colour) ?? 0);
+    itemAt(lineIndex: number, columnIndex: number) {
+        return this._lines?.get(lineIndex)?.getItem(columnIndex)
     }
 }
 
-
-class Game {
-    get gameNumber(): number {
-        return parseInt(this._gameNumber)
+class Line {
+    get index(): number {
+        return this._index;
     }
-    private readonly _gameNumber: string
+    private readonly _index: number
+    private _items: Map<number, Item>
 
-    private readonly _rounds: Round[]
-
-    constructor(id: string, sets: Round[]) {
-        this._gameNumber = id
-        this._rounds = sets
-    }
-
-    couldBePlayedWith(ballSupply: Round) {
-        return foldMap(forAll)((myGame: Round) => ballSupply.couldProvide(myGame))(this._rounds)
+    constructor(index: number, items: Item[]) {
+        this._index = index
+        this._items = new Map()
+        items.forEach(item => { item.line = this; this._items.set(item.columnIndex, item)})
     }
 
-    get minimumCubeSupply(): Round{
-        return pipe(this._rounds,
-            reduce(new Round([[0, Red], [0, Green], [0, Blue]]),
-                (accumulator, next: Round) => accumulator.minimumRequiredWith(next)))
+    getItem(columnIndex: number) {
+        return this._items?.get(columnIndex)
     }
 }
 
-const Red : "red" = "red"
-const Green : "green" = "green"
-const Blue : "blue" = "blue"
+abstract class Item {
+    abstract get value(): number
 
-type Colour = "red" | "green" | "blue"
-const Colours:["red", "green", "blue"] = [Red, Green, Blue] // enums are not worth having, they're too non-orthogonal
+    get columnIndex(): number {
+        return this._columnIndex;
+    }
+    set line(value: Line) {
+        this._line = value;
+    }
+    private readonly _columnIndex: number
+    private _line?: Line
 
+    get lineIndex(){
+        return this._line?.index
+    }
+    constructor(columnIndex: number) {
+        this._columnIndex = columnIndex
+    }
+}
+
+abstract class NoValueItem extends Item{
+    get value(): number {
+        throw new Error("you shouldn't care")
+    }
+}
+
+class Numeric extends Item{
+    private readonly _digits: string
+
+    constructor(columnIndex: number, digits: string) {
+        super(columnIndex)
+        this._digits = digits
+    }
+
+    get value(): number {
+        return parseInt(this._digits);
+    }
+}
+
+class Dot extends NoValueItem{
+    constructor(columnIndex: number) {
+        super(columnIndex)
+    }
+
+}
+
+class Symb extends NoValueItem {
+    constructor(columnIndex: number) {
+        super(columnIndex)
+    }
+}
+
+// used cat Day3.txt | sed -e 's/[[:digit:]]/\./g' | sed -e 's/\.//g' to get an idea of what the "symbols" are
 function createParser() {
     const grammar = ohm.grammar(String.raw`
-            BallGames {
-                Games = Game+               
-                Game = "Game" number ":" Rounds
-                                   
-                Rounds = ListOf<Round, ";">                        
-                Round = ListOf<Cubes, ",">
-                
-                Cubes  = number colour
-     
-                colour = "${Red}" | "${Blue}" | "${Green}" //nice!
-             
-                number = digit+
-            }
-        `)
+         Schematic {
+            diagram = line+
+        
+            line = item+ lineEnd
+            lineEnd = ":"
+            item = number 
+                 | dot 
+                 | symbol
+            number = digit+
+            dot = "."
+            symbol = "*" 
+                   | "&"
+                   | "@"
+                   | "#"
+                   | "="
+                   | "+"
+                   | "-"
+                   | "%"
+                   | "$"
+                   | "/"
+        }
+    `)
 
-    const gameSemantics = grammar.createSemantics()
-    gameSemantics.addOperation('parseGamesData', {
-        Games(list) { // note: Games is a repetition, so the node _is_ an IterationNode
-            return list.children.map(child => child.parseGameData())
+    let lineIndex: number
+    let columnIndex: number
+    const semantics = grammar.createSemantics()
+    semantics.addOperation('handleDiagram',{
+        diagram(lineNodeList){
+            lineIndex = 0
+            return new Diagram(lineNodeList.children.map(child => child.handleLine()))
         }
-    }).addOperation('parseGameData', {
-        Game(_tag, id, _colon, rounds) {
-            return new Game(id.parseNumberData(), rounds.parseRoundsData())
+    }).addOperation('handleLine', {
+        line(itemNodeList, _terminator){
+            columnIndex = 0
+            const line = new Line(lineIndex, itemNodeList.children.map(child => child.handleItem()))
+            lineIndex = lineIndex + 1
+            return line
         }
-    }).addOperation('parseRoundsData', {
-        Rounds(list) { //note: Rounds is a list, so the node _is not_ an IterationNode
-            return list.asIteration().children.map((child) => child.parseRoundData())
+    }).addOperation('handleItem', {
+        item(itemNode){
+            let theItem
+            switch(itemNode.ctorName) {
+                case 'dot':
+                    theItem = itemNode.handleDot()
+                    columnIndex = columnIndex + 1
+                    break
+                case 'symbol':
+                    theItem = itemNode.handleSymbol()
+                    columnIndex = columnIndex + 1
+                    break
+                case 'number':
+                    const digits = itemNode.sourceString
+                    theItem = new Numeric(columnIndex, digits)
+                    columnIndex = columnIndex + digits.length
+                    break
+            }
+            return theItem
         }
-    }).addOperation('parseRoundData', {
-        Round(list) {
-            return new Round(list.asIteration().children.map((child) => child.parseCubesData()))
+    }).addOperation('handleDot', {
+        dot(_){
+            return new Dot(columnIndex)
         }
-    }).addOperation('parseCubesData', {
-        Cubes(count, colour) {
-            return [parseInt(count.parseNumberData()), colour.sourceString]
-        }
-    }).addOperation('parseNumberData', {
-        number(digits): string {
-            return digits.sourceString
+    }).addOperation('handleSymbol', {
+        symbol(_){
+            return new Symb(columnIndex)
         }
     })
-    return {grammar, gameSemantics};
+    return {grammar, semantics};
 }
 
-function sumIdsOfPossibleGames(games: Game[], cubeSupply: Round) {
-    return pipe(games,
-        filter((aGame: Game) => aGame.couldBePlayedWith(cubeSupply)),
-        reduce(0,
-            (accumulator: number, aGame: Game) => accumulator + aGame.gameNumber));
-}
 
-function makeGames(rawData: string) {
-    const {grammar, gameSemantics} = createParser();
-    return gameSemantics(grammar.match(rawData)).parseGamesData();
-}
-
-function findPowerSumMinimumSets(games: Game[]) {
-    return foldMap(sumAll)((g: Game) => g.minimumCubeSupply.power)(games) //could have been a pipe with map() and reduce()
+function mapLineEndings(rawInput: string) {
+    const oneLine = rawInput.replaceAll("\n",":")
+    return oneLine + ":"
 }
 
 describe("Advent of Code",()=> {
     describe("using ohm", () => {
-        describe("Day 2",()=> {
+        describe("Day 3",()=> {
             describe("Part 1", () => {
-                it("builds games", () => {
+                it("parses a small schematic",()=>{
+                    const exampleDiagram=String.raw`467..114..
+...*......`
+                    const easilyParsed = mapLineEndings(exampleDiagram)
 
-                    const {grammar, gameSemantics} = createParser();
-                    const exampleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
-                    expect(grammar.match(exampleGames).succeeded()).toBeTruthy()
+                    const partNumbers = [467]
 
-                    const games: Game[] = gameSemantics(grammar.match(exampleGames)).parseGamesData()
-                    expect(games.length).toEqual(2)
-                    expect(games[0].gameNumber).toEqual(17)
+                    const {grammar, semantics} = createParser()
+                    const match = grammar.match(easilyParsed)
+                    expect(match.succeeded()).toBeTruthy()
+                    const diagram: Diagram = semantics(match).handleDiagram()
+                    expect(diagram.itemAt(0,0)).toBeInstanceOf(Numeric)
+                    expect(diagram.itemAt(0,0)?.value).toEqual(467)
+                    expect(diagram.itemAt(0,1)).toBeUndefined()
+                    expect(diagram.itemAt(0,2)).toBeUndefined()
+                    expect(diagram.itemAt(0,3)).toBeInstanceOf(Dot)
+                    expect(diagram.itemAt(0,4)).toBeInstanceOf(Dot)
+                    expect(diagram.itemAt(0,5)).toBeInstanceOf(Numeric)
+                    expect(diagram.itemAt(0,5)?.value).toEqual(114)
+
+                    expect(diagram.itemAt(1,2)).toBeInstanceOf(Dot)
+                    expect(diagram.itemAt(1,3)).toBeInstanceOf(Symb)
+                    expect(diagram.itemAt(1,4)).toBeInstanceOf(Dot)
                 })
 
-                it("recognises validity", () => {
-                    const {grammar, gameSemantics} = createParser();
+                it("parses a schematic",()=>{
+                    const exampleDiagram=String.raw`467..114..
+...*......
+..35..633.
+......#...
+617*......
+.....+.58.
+..592.....
+......755.
+...$.*....
+.664.598..`
+                    const easilyParsed = mapLineEndings(exampleDiagram)
 
-                    const exampleGames = "Game 17: 3 red, 2 green, 4 blue; 2 red, 4 green, 17 blue \n Game 42: 2 green, 6 blue"
-                    const games: Game[] = gameSemantics(grammar.match(exampleGames)).parseGamesData()
-                    const cubeSupply = new Round([[12, Red], [13, Green], [14, Blue]])
-                    expect(games[0].couldBePlayedWith(cubeSupply)).toBeFalsy()
-                    expect(games[1].couldBePlayedWith(cubeSupply)).toBeTruthy()
+                    const partNumbers = [467, 35, 633, 617, 592, 755, 664, 598]
+                    const sum = 4361
+
+                    const {grammar, semantics} = createParser()
+                    const match = grammar.match(easilyParsed)
+                    expect(match.succeeded()).toBeTruthy()
+                    semantics(match).handleDiagram()
                 })
 
                 it("finds the answer", async () => {
-                    const rawData = await filesystem.readFile('problem_sets/Day2.txt', 'utf-8')
-                    //console.log(grammar.trace(rawData))
-                    const games = makeGames(rawData)
-                    const cubeSupply = new Round([[12, Red], [13, Green], [14, Blue]])
-                    expect(sumIdsOfPossibleGames(games, cubeSupply)).toEqual(2447)
+                    const rawData = await filesystem.readFile('problem_sets/Day3.txt', 'utf-8')
+
                 })
-            })
-        })
-
-        describe("day 2",()=>{
-            it("Calculates powers",() => {
-                const aRound = new Round([[4, Red], [2, Green], [6, Blue]])
-                expect(aRound.power).toEqual(48)
-                const anotherRound = new Round([[1, Red], [3, Green], [4, Blue]])
-                expect(anotherRound.power).toEqual(12)
-            })
-
-            it("makes minimum rounds",()=>{
-                const aRound = new Round([[4, Red], [2, Green], [6, Blue]])
-                const anotherRound = new Round([[7, Red], [1, Green], [6, Blue]])
-                expect(aRound.minimumRequiredWith(anotherRound)).toEqual(new Round([[7, Red],[2, Green],[6, Blue]]))
-            })
-
-            it.each([
-                [makeGames("Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green"), 4, 2, 6],
-                [makeGames("Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue"), 1, 3, 4],
-                [makeGames("Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red"), 20, 13, 6],
-                [makeGames("Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red"), 14, 3, 15],
-                [makeGames("Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green"), 6, 3, 2]])
-            ("finds minimum cube supply",(games, r,g,b) => {
-                expect(games[0].minimumCubeSupply).toEqual(new Round ([[r, Red], [g, Green], [b, Blue]]))
-            })
-
-            it("finds the answer",async ()=>{
-                const exampleGames = makeGames(String.raw`
-                    Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
-                    Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
-                    Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red
-                    Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red
-                    Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green
-                `)
-
-                const result =
-                        findPowerSumMinimumSets(exampleGames)
-
-                expect(result).toEqual(2286)
-
-                const rawData = await filesystem.readFile('problem_sets/Day2.txt', 'utf-8')
-                const games = makeGames(rawData)
-                expect(findPowerSumMinimumSets(games)).toEqual(56322)
-
             })
         })
     })
