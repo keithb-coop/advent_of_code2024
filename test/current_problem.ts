@@ -1,7 +1,10 @@
 import {promises as filesystem} from "fs";
 
 import * as ohm from 'ohm-js'
-import {map} from "fp-ts/Array";
+import {filter, foldMap, map} from "fp-ts/Array";
+import {pipe} from "fp-ts/function";
+import {MonoidAny} from "fp-ts/boolean";
+import {MonoidSum} from "fp-ts/number";
 
 
 class Diagram {
@@ -26,6 +29,24 @@ class Diagram {
 
     lineBelow(aLine: Line): Line | undefined {
         return this._lines.get(aLine.index + 1)
+    }
+
+    get allItems(){
+        const result = []
+        for(const line of this._lines.values()){
+            result.push(...line.allItems)
+        }
+        return result
+    }
+
+    static async sumOfPartNumbersInProblemSet(): Promise<number>{
+        const rawData = await filesystem.readFile('problem_sets/Day3.txt', 'utf-8')
+        const {grammar, semantics} = createParser()
+
+        return pipe(semantics(grammar.match(mapLineEndings(rawData))).handleDiagram().allItems,
+            filter((item: Item) => item.isNumber),
+            filter((item: Item) => foldMap(MonoidAny)((neighbour: Item) => neighbour.isSymbol)(item.neighbours)),
+            foldMap(MonoidSum)((item: Item) => (item as Numeric).value))
     }
 }
 
@@ -80,6 +101,9 @@ class Line {
         return this._diagram?.lineBelow(this)
     }
 
+    get allItems(){
+        return this._items.values()
+    }
 }
 
 abstract class Item {
@@ -101,7 +125,6 @@ abstract class Item {
     }
 
     get neighboursBelow(): Item[] {
-
         return this._line?.lineBelow?.neighboursOf(this) ?? []
     }
 
@@ -132,6 +155,10 @@ abstract class Item {
     toString(){
         return `${this.constructor.name} on line ${this.lineIndex} at column ${this.initialColumnIndex}`
     }
+
+    abstract get isNumber(): boolean
+
+    abstract get isSymbol(): boolean
 }
 
 abstract class NotNumeric extends Item{
@@ -143,6 +170,9 @@ abstract class NotNumeric extends Item{
         return this.initialColumnIndex
     }
 
+    get isNumber(){
+        return false
+    }
 }
 
 class Numeric extends Item{
@@ -157,9 +187,16 @@ class Numeric extends Item{
         return parseInt(this._digits);
     }
 
-
     get finalColumnIndex(){
         return this.initialColumnIndex + this._digits.length - 1
+    }
+
+    get isNumber(){
+        return true
+    }
+
+    get isSymbol(): boolean{
+        return false
     }
 }
 
@@ -168,11 +205,18 @@ class Dot extends NotNumeric{
         super(columnIndex)
     }
 
+    get isSymbol(): boolean{
+        return false
+    }
 }
 
 class Symb extends NotNumeric {
     constructor(columnIndex: number) {
         super(columnIndex)
+    }
+
+    get isSymbol(): boolean{
+        return true
     }
 }
 
@@ -265,8 +309,6 @@ describe("Advent of Code",()=> {
 ...*......`
                     const easilyParsed = mapLineEndings(exampleDiagram)
 
-                    const partNumbers = [467]
-
                     const {grammar, semantics} = createParser()
                     const match = grammar.match(easilyParsed)
                     expect(match.succeeded()).toBeTruthy()
@@ -321,16 +363,25 @@ describe("Advent of Code",()=> {
                     const theDiagram = semantics(match).handleDiagram()
 
                     const partNumbers = [467, 35, 633, 617, 592, 755, 664, 598]
-                    const sum = 4361
+
+                    const allItems = theDiagram.allItems
+                    const numberItems = filter((item: Item) => item.isNumber)(allItems)
+                    const numbers = map((item: Item) => (item as Numeric).value)(numberItems)
+                    for(const expectedNumber of partNumbers){
+                        expect(numbers).toContain(expectedNumber)
+                    }
+
+                    const withSymbolNeigbours = filter((item: Item) => foldMap(MonoidAny)((neighbour: Item) => neighbour.isSymbol)(item.neighbours))(numberItems)
+                    const withSymbolNeighbourNumbers = map((item: Item) => (item as Numeric).value)(withSymbolNeigbours)
+                    for(const expectedNumber of partNumbers){
+                        expect(withSymbolNeighbourNumbers).toContain(expectedNumber)
+                    }
+                    const sum = foldMap(MonoidSum)((item: Item) => (item as Numeric).value)(withSymbolNeigbours)
+                    expect(sum).toEqual(4361)
                 })
 
                 it("finds the answer", async () => {
-                    const rawData = await filesystem.readFile('problem_sets/Day3.txt', 'utf-8')
-                    const {grammar, semantics} = createParser()
-                    const easilyParsed = mapLineEndings(rawData)
-                    const match = grammar.match(easilyParsed)
-                    expect(match.succeeded()).toBeTruthy()
-                    const theDiagram = semantics(match).handleDiagram()
+                    expect((await Diagram.sumOfPartNumbersInProblemSet()).valueOf()).toEqual(549908)
 
                 })
             })
