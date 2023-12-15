@@ -1,23 +1,42 @@
 import {promises as filesystem} from "fs";
 
 import * as ohm from 'ohm-js'
+import {map} from "fp-ts/Array";
+
 
 class Diagram {
     private _lines: Map<number, Line>
 
     constructor(lines: Line[]) {
         this._lines = new Map()
-        lines.forEach(line => this._lines.set(line.index, line))
+        lines.forEach(line => {line.diagram = this; this._lines.set(line.index, line)})
     }
 
     itemAt(lineIndex: number, columnIndex: number) {
         return this._lines?.get(lineIndex)?.getItem(columnIndex)
     }
+
+    itemsAt(...coordinates:number[][]){
+        return map((pair:number[]) => this.itemAt(pair[0], pair[1]))(coordinates)
+    }
+
+    lineAbove(aLine: Line): Line | undefined {
+        return this._lines.get(aLine.index - 1) // returns undefined if no such key, bounds checking not needed
+    }
+
+    lineBelow(aLine: Line): Line | undefined {
+        return this._lines.get(aLine.index + 1)
+    }
 }
 
 class Line {
+    set diagram(d: Diagram) {
+        this._diagram = d
+    }
+    private _diagram?: Diagram
+
     get index(): number {
-        return this._index;
+        return this._index
     }
     private readonly _index: number
     private _items: Map<number, Item>
@@ -25,38 +44,105 @@ class Line {
     constructor(index: number, items: Item[]) {
         this._index = index
         this._items = new Map()
-        items.forEach(item => { item.line = this; this._items.set(item.columnIndex, item)})
+        items.forEach(item => { item.line = this; this._items.set(item.initialColumnIndex, item)})
     }
 
     getItem(columnIndex: number) {
         return this._items?.get(columnIndex)
     }
+
+    itemToTheLeftOf(anItem: Item): Item | null {
+        return this._items?.get(anItem.initialColumnIndex - 1) ?? null
+    }
+
+    itemToTheRightOf(anItem: Item): Item | null {
+        return this._items?.get(anItem.finalColumnIndex + 1) ?? null
+
+    }
+
+    neighboursOf(anItem: Item): Item[]{
+        const result = []
+        for(let columnIndex = anItem.initialColumnIndex - 1; columnIndex <= anItem.finalColumnIndex + 1; columnIndex++){
+            const maybeItem = this._items.get(columnIndex) ?? null
+            if(maybeItem != null){
+                result.push(maybeItem)
+            }
+        }
+        return result
+    }
+
+
+    get lineAbove(): Line | undefined {
+        return this._diagram?.lineAbove(this)
+    }
+
+    get lineBelow(): Line | undefined {
+        return this._diagram?.lineBelow(this)
+    }
+
 }
 
 abstract class Item {
+    abstract get finalColumnIndex(): number
+
+    get neighboursAbove(): Item[] {
+        return this._line?.lineAbove?.neighboursOf(this) ?? []
+    }
+
+    get neighboursOnThisLine(): Item[] {
+        const result = []
+        for(const maybeItem of [this._line?.itemToTheLeftOf(this) ?? null, this._line?.itemToTheRightOf(this) ?? null]) {
+            if (null != maybeItem) {
+                result.push(maybeItem)
+            }
+        }
+
+        return result
+    }
+
+    get neighboursBelow(): Item[] {
+
+        return this._line?.lineBelow?.neighboursOf(this) ?? []
+    }
+
+    get neighbours(): Item[] {
+        const result = []
+        result.push(...this.neighboursAbove, ...this.neighboursOnThisLine, ...this.neighboursBelow)
+        return result
+    }
+
     abstract get value(): number
 
-    get columnIndex(): number {
-        return this._columnIndex;
+    get initialColumnIndex(): number {
+        return this._initialColumnIndex;
     }
     set line(value: Line) {
         this._line = value;
     }
-    private readonly _columnIndex: number
+    private readonly _initialColumnIndex: number
     private _line?: Line
 
     get lineIndex(){
         return this._line?.index
     }
     constructor(columnIndex: number) {
-        this._columnIndex = columnIndex
+        this._initialColumnIndex = columnIndex
+    }
+
+    toString(){
+        return `${this.constructor.name} on line ${this.lineIndex} at column ${this.initialColumnIndex}`
     }
 }
 
-abstract class NoValueItem extends Item{
+abstract class NotNumeric extends Item{
     get value(): number {
         throw new Error("you shouldn't care")
     }
+
+    get finalColumnIndex(){
+        return this.initialColumnIndex
+    }
+
 }
 
 class Numeric extends Item{
@@ -70,22 +156,28 @@ class Numeric extends Item{
     get value(): number {
         return parseInt(this._digits);
     }
+
+
+    get finalColumnIndex(){
+        return this.initialColumnIndex + this._digits.length - 1
+    }
 }
 
-class Dot extends NoValueItem{
+class Dot extends NotNumeric{
     constructor(columnIndex: number) {
         super(columnIndex)
     }
 
 }
 
-class Symb extends NoValueItem {
+class Symb extends NotNumeric {
     constructor(columnIndex: number) {
         super(columnIndex)
     }
 }
 
 // used cat Day3.txt | sed -e 's/[[:digit:]]/\./g' | sed -e 's/\.//g' to get an idea of what the "symbols" are
+// I'm suspicious of the asterixes
 function createParser() {
     const grammar = ohm.grammar(String.raw`
          Schematic {
@@ -193,6 +285,24 @@ describe("Advent of Code",()=> {
                     expect(diagram.itemAt(1,4)).toBeInstanceOf(Dot)
                 })
 
+                it("finds neighbours of numbers",()=>{
+                    //                      012345:012345:012345:012345
+                    const data = String.raw`..*...:.123..:......:......:`
+
+                    const {grammar, semantics} = createParser()
+                    const match = grammar.match(data)
+                    expect(match.succeeded()).toBeTruthy()
+                    const theDiagram = semantics(match).handleDiagram()
+                    const targetNumber = theDiagram.itemAt(1,1)
+                    for (const item of theDiagram.itemsAt(
+                        [0,0], [0,1], [0,2], [0,3], [0,4],
+                        [1,0],                      [1,4],
+                        [2,0], [2,1], [2,2], [2,3], [2,4])) {
+                        expect(targetNumber.neighbours).toContain(item)
+                        expect(targetNumber.neighbours).not.toContain(theDiagram.itemAt([1,5]))
+                    }
+                })
+
                 it("parses a schematic",()=>{
                     const exampleDiagram=String.raw`467..114..
 ...*......
@@ -205,18 +315,22 @@ describe("Advent of Code",()=> {
 ...$.*....
 .664.598..`
                     const easilyParsed = mapLineEndings(exampleDiagram)
-
-                    const partNumbers = [467, 35, 633, 617, 592, 755, 664, 598]
-                    const sum = 4361
-
                     const {grammar, semantics} = createParser()
                     const match = grammar.match(easilyParsed)
                     expect(match.succeeded()).toBeTruthy()
-                    semantics(match).handleDiagram()
+                    const theDiagram = semantics(match).handleDiagram()
+
+                    const partNumbers = [467, 35, 633, 617, 592, 755, 664, 598]
+                    const sum = 4361
                 })
 
                 it("finds the answer", async () => {
                     const rawData = await filesystem.readFile('problem_sets/Day3.txt', 'utf-8')
+                    const {grammar, semantics} = createParser()
+                    const easilyParsed = mapLineEndings(rawData)
+                    const match = grammar.match(easilyParsed)
+                    expect(match.succeeded()).toBeTruthy()
+                    const theDiagram = semantics(match).handleDiagram()
 
                 })
             })
