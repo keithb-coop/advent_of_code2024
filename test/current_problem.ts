@@ -5,6 +5,7 @@ import {filter, foldMap, map} from "fp-ts/Array";
 import {pipe} from "fp-ts/function";
 import {MonoidAny} from "fp-ts/boolean";
 import {MonoidSum} from "fp-ts/number";
+import {none, Option, some} from "fp-ts/Option";
 
 
 class Diagram {
@@ -72,6 +73,11 @@ class Line {
         return this._items?.get(columnIndex)
     }
 
+    anySuchItem(columnIndex: number): Option<Item>{
+        const item = this._items.get(columnIndex)
+        return (item == null ? none : some(item)) //possibly the only legit use of the ternary operator
+    }
+
     itemToTheLeftOf(anItem: Item): Item | null {
         return this._items?.get(anItem.initialColumnIndex - 1) ?? null
     }
@@ -84,10 +90,7 @@ class Line {
     neighboursOf(anItem: Item): Item[]{
         const result = []
         for(let columnIndex = anItem.initialColumnIndex - 1; columnIndex <= anItem.finalColumnIndex + 1; columnIndex++){
-            const maybeItem = this._items.get(columnIndex) ?? null
-            if(maybeItem != null){
-                result.push(maybeItem)
-            }
+            result.push(this.anySuchItem(columnIndex))
         }
         return result
     }
